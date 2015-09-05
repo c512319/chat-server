@@ -1,0 +1,43 @@
+简单websocket聊天服务器-客户端接口文档
+
+一.websocket聊天室url
+ws://127.0.0.1:8090/ws
+
+共有三种聊天室:世界聊天室,好友聊天室,点对点聊天室;
+
+登入聊天室都需要客户端request中带name,password参数;
+websocket连接中,约定body为json格式;
+
+1.需登入好友聊天室,需要request参数中chatroom不为nil,且chatroom-id,
+chatroom-owner,chatroom-guests参数经过validate-chatroom验证成功;
+2.拉好友进聊天室需要request参数中invite不为nil,:invited-guest参数为
+被邀请好友的名字,当前name参数为好友聊天室owner名字,目前只有聊天室owner能
+邀请好友加入聊天室;
+
+二.模型字段
+
+1.Message字段:from 消息发送者, to 消息接受者,text 消息内容,time 消息
+时间(为到达服务端的时间),should-reserved(未使用);客户端需要发送
+from to text字段,其中to用于区分websocket连接的channel类型,以便区分
+三种聊天室;
+to为字符串时表示当前聊天室为点对点聊天室,如"a";
+to为json数组时表示好友聊天室,如["a" "b"];
+to为关键字world时表示世界聊天室;
+2.User字段:id 用户身份,name 用户名字,encrypted-password用户密码的
+bcrypt+sha512加密密文,talked-persons-history,用户点对点聊天历史;
+
+三.Restful API
+127.0.0.1/api/world-records ,获取过去5分钟世界聊天记录;
+127.0.0.1/api/chatroom-records,获取过去5分钟聊天室记录;
+127.0.0.1/api/p2p-records,获取点对点聊天过的用户列表,和最近一条记录;
+
+四.实际耗时
+了解情况:约4小时;
+开始做~结束:约11小时;
+
+五.问题
+1.用clojure.data.json/json-str不能转clj-time;
+2.websocket客户端没有启动,即ws://127.0.0.1/ws,没有看到;
+3.没有聊天室用户注册等功能,Restful API请求数据时基本为空;
+4.没有使用数据库;
+4.tcp/ip知识,Web Service的知识不足,再耗费时间也不能有太大改进;
