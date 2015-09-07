@@ -3,7 +3,8 @@
             [taoensso.timbre :as timbre]
             [chat-server.handler :refer [app]]
             [clj-time.core :as t]
-            [chat-server.routes.websocket :refer [start-clean-task set-data]])
+            [chat-server.routes.websocket :refer [start-clean-task]]
+            [chat-server.database :refer [set-data]])
   (:gen-class))
 
 (defonce server (atom nil))
