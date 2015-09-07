@@ -19,10 +19,15 @@
 (def p2p-channels (atom #{}))
 
 ;;chatrooms,[{:chatroom-id yyy, :chatroom-owner xxx, :chatroom-guests [...]}]
-(let [id (atom 0)]
-  (defn next-id []
-    (swap! id inc)
-    @id))
+(def current-id (atom 0))
+(defn next-id []
+  (swap! current-id inc)
+  @current-id)
+
+;; (let [id (atom 0)]
+;;   (defn next-id []
+;;     (swap! id inc)
+;;     @id))
 
 (def chatrooms (atom []))
 
@@ -203,4 +208,3 @@
            (GET "/api/world-records" [] (json-str (deref (clean-msgs msgs-world))))
            (GET "/api/chatroom-records" [chatroom-id] (json-str (filter #(= chatroom-id (key %)) (deref (clean-msgs msgs-chatroom)))))
            (GET "/api/p2p-records" [user-id] (json-str (get-p2p-records user-id))))
-
