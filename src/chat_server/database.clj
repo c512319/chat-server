@@ -5,13 +5,13 @@
 
 ;;;;;;;;;;;;;;;;;;;; dummy in-memory database start ;;;;;;;;;;;;;;;;;;;;;;;;
 (defn set-users-data [id name encrypted-password talked-persons-history]
-  (swap! users conj (->User id name encrypted-password talked-persons-history)))
+  (swap! users assoc id (->User id name encrypted-password talked-persons-history)))
 
 (defn set-msg [msgs-location from to text time should-reserved]
   (swap! msgs-location conj (->Message from to text time should-reserved) ))
 
 (defn set-chatroom [chatroom-id chatroom-owner chatroom-guests]
-  (swap! chatrooms conj {:chatroom-id chatroom-id :chatroom-owner chatroom-owner :chatroom-guests chatroom-guests}))
+  (swap! chatrooms assoc chatroom-id {:chatroom-id chatroom-id :chatroom-owner chatroom-owner :chatroom-guests chatroom-guests}))
 
 ;;;simulated initial data
 (defn set-data []

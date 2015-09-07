@@ -7,7 +7,28 @@
             [clj-time.core :as t])
   (:use chat-server.models))                            ;import models(record): User, Message.
 
-(def users (atom []))
+;; (def users (atom []))
+;; Many operations of users depend on id,so change to sorted-map for efficience
+;; the same as chatrooms below.
+;; Then ,those operations depended on id,of users or chatrooms,such as set user,get user,filter ...
+;; should be changed to sorted-map operations,
+;; in several related ns.
+;; It's not so troublesome now,just get :id out,to the sorted-map key.
+;; But when project is big enough,it will be troublesome,so :should seperate these operations out.
+
+;; new users model: {USER-ID User-instance}
+(def users (atom (sorted-map)))
+
+(defn get-user-by-id [user-id]  ; user-id is keyword,put user-id first to prevent unknown nil
+  (user-id @users))
+
+;;chatrooms,[{:chatroom-id yyy, :chatroom-owner xxx, :chatroom-guests [...]}]
+;; new chatrooms model:{CHATROOM-ID {:chatroom-id yyy, :chatroom-owner xxx, :chatroom-guests [...]}}
+;; Why two chatroom-id? Just want to keep chatroom structure complete.
+(def chatrooms (atom (sorted-map)))
+
+(defn get-chatroom-by-id [chatroom-id]
+  (chatroom-id @chatrooms))
 
 (def msgs-world (atom #{}))
 (def msgs-chatroom (atom []))                               ;msgs-charroom model:[{...} ...]
@@ -17,37 +38,39 @@
 (def chatroom-channels (atom #{}))
 (def p2p-channels (atom #{}))
 
-;;chatrooms,[{:chatroom-id yyy, :chatroom-owner xxx, :chatroom-guests [...]}]
-(def current-id (atom 0))
-(defn next-id []
-  (swap! current-id inc)
-  @current-id)
 
 ;; (let [id (atom 0)]
 ;;   (defn next-id []
 ;;     (swap! id inc)
 ;;     @id))
 
-(def chatrooms (atom []))
+;; (def chatrooms (atom []))
+(def current-id (atom 0))
+(defn next-id []
+  (swap! current-id inc)
+  @current-id)
 
 (defn validate-chatroom [chatroom-id user-name]
-  (let [chatroom (first (filter #(= chatroom-id (:chatroom-id %)) @chatrooms))
+  (let [chatroom (get-chatroom-by-id chatroom-id)
         owner (:chatroom-owner chatroom)
         guests (:chatroom-guests chatroom)]
     (and chatroom
          (or (= owner user-name)
              (some #(= % user-name) guests)))))
 
-(defn get-chatroom-index [chatroom-id]
-  ((into {} (map-indexed (fn [index ele] [(:chatroom-id ele) index]) @chatrooms)) chatroom-id))
+;; ;; chatrooms [] -> sorted-map,get-chatroom-index no needed again
+;; (defn get-chatroom-index [chatroom-id]
+;;   ((into {} (map-indexed (fn [index ele] [(:chatroom-id ele) index]) @chatrooms)) chatroom-id))
 
 (defn invite [chatroom-id chatroom-owner chatroom-guest]
   (if (and chatroom-id chatroom-owner chatroom-guest)
-    (swap! chatrooms update-in [(get-chatroom-index chatroom-id) :chatroom-guests] #(conj % chatroom-guest))
+    (swap! chatrooms update-in [chatroom-id :chatroom-guests] #(conj % chatroom-guest))
     (timbre/info "邀请好友信息不完全:要求chatroom-id,chatroom-owner,chatroom-guest")))
 
-(defn get-user [name]
+(defn get-user-by-name [name]
   (first (filter #(= name (:name %)) @users)))
+
+(def get-user get-user-by-name)
 
 (defn get-encrypted-password-from-database [name]
   (:encrypted-password (get-user name)))
@@ -141,7 +164,7 @@
                                                   (fn [msg]
                                                     (let [user-id (:from msg)
                                                           new-talked-person (:to msg)
-                                                          user (first (filter #(= user-id (:id %)) @users))
+                                                          user (get-user-by-id user-id)
                                                           new-talked-persons-history (if user
                                                                                        (conj (:talked-persons-history user) new-talked-person)
                                                                                        #{})
@@ -149,7 +172,7 @@
                                                       (server/send! channel msg)
                                                       ;;msg中的to存到users的from(User对象的)的talked-persons-history中
                                                       ;;以便请求点对点聊天过的好友列表时用.
-                                                      (swap! (swap! users disj user) conj new-user)
+                                                      (swap! users assoc user-id new-user)
                                                       (swap! msgs-p2p conj (Message-from-map msg)))))
                                                 ))
                            (server/send! channel (json-str {:error true :reason "用户名,密码验证不正确."}))))))
@@ -166,7 +189,7 @@
 (defn get-p2p-records
   "Return p2p-records user list,and latest message,model:{:user-list xxx,:latest-messages:[[Talk-TO-Person Message-Text]] ."
   [user-id]
-  (let [user (first (filter #(= user-id (:id %)) @users))
+  (let [user (get-user-by-id user-id)
         from (:name user)
         talked-persons-history (:talked-persons-history user) ;;每个对应Message. 中的to
         latest-messages (vec (for [to talked-persons-history]
