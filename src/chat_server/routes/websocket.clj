@@ -3,9 +3,7 @@
             [org.httpkit.server :as server]
             [taoensso.timbre :as timbre]
             [buddy.hashers :as hashers]
-            [clojure.data.json :refer [json-str read-json]]
-            [clj-time.core :as t]
-            )
+            [clojure.data.json :refer [json-str read-json]])
   (:use chat-server.models))                            ;import models(record): User, Message.
 
 (def users (atom []))
