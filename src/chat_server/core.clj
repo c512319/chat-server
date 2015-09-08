@@ -7,10 +7,16 @@
             [chat-server.database :refer [set-data]])
   (:gen-class))
 
+
+
 (defonce server (atom nil))
+
+
 
 (defn parse-port [[port]]
   (Integer/parseInt (or port "8090")))
+
+
 
 (defn start-server [port]
   (reset! server (server/run-server #'app {:port port})))

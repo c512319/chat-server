@@ -9,6 +9,12 @@
             [clojure.core.async :refer [chan alts! timeout go >!]])
   (:use chat-server.models))                            ;import models(record): User, Message.
 
+
+
+;;;;;;;;;;  global varialbes  ;;;;;;;;;;
+
+
+
 ;; Alpha to change
 ;; 控制定期清理任务开始的分钟数,*clean-minutes*为(0 1 2 3)时表示从现在0 1 2 3 minute的时候,
 ;; 分别用org.httpkit.timer/schedule-task分配一次计划任务,
@@ -20,28 +26,9 @@
 ;;   改用偏移式schedule??
 (def ^:dynamic *clean-minutes* (range (* 5 3600)))
 
-;; (def users (atom []))
-;; Many operations of users depend on id,so change to sorted-map for efficience
-;; the same as chatrooms below.
-;; Then ,those operations depended on id,of users or chatrooms,such as set user,get user,filter ...
-;; should be changed to sorted-map operations,
-;; in several related ns.
-;; It's not so troublesome now,just get :id out,to the sorted-map key.
-;; But when project is big enough,it will be troublesome,so :should seperate these operations out.
-
-;; new users model: {USER-ID User-instance}
 (def users (atom (sorted-map)))
 
-(defn get-user-by-id [user-id]  ; user-id is keyword,put user-id first to prevent unknown nil
-  (user-id @users))
-
-;;chatrooms,[{:chatroom-id yyy, :chatroom-owner xxx, :chatroom-guests [...]}]
-;; new chatrooms model:{CHATROOM-ID {:chatroom-id yyy, :chatroom-owner xxx, :chatroom-guests [...]}}
-;; Why two chatroom-id? Just want to keep chatroom structure complete.
 (def chatrooms (atom (sorted-map)))
-
-(defn get-chatroom-by-id [chatroom-id]
-  (chatroom-id @chatrooms))
 
 (def msgs-world (atom #{}))
 (def msgs-chatroom (atom []))                               ;msgs-charroom model:[{...} ...]
@@ -51,17 +38,40 @@
 (def chatroom-channels (atom #{}))
 (def p2p-channels (atom #{}))
 
+(def channels-map {:p2p p2p-channels
+                   :chatroom chatroom-channels
+                   :world world-channels})
 
-;; (let [id (atom 0)]
-;;   (defn next-id []
-;;     (swap! id inc)
-;;     @id))
 
-;; (def chatrooms (atom []))
+
+;;;;;;;;;;  user about  ;;;;;;;;;;
+
+
+
 (def current-id (atom 0))
 (defn next-id []
   (swap! current-id inc)
   @current-id)
+
+(defn get-user-by-id [user-id]  ; user-id is keyword,put user-id first to prevent unknown nil
+  (user-id @users))
+
+(defn get-user-by-name [name]
+  (first (filter #(= name (:name %)) @users)))
+
+(def get-user get-user-by-name)
+
+(defn get-encrypted-password-from-database [name]
+  (:encrypted-password (get-user name)))
+
+
+
+;;;;;;;;;;  chatroom about  ;;;;;;;;;;
+
+
+
+(defn get-chatroom-by-id [chatroom-id]
+  (chatroom-id @chatrooms))
 
 (defn validate-chatroom [chatroom-id user-name]
   (let [chatroom (get-chatroom-by-id chatroom-id)
@@ -71,22 +81,16 @@
          (or (= owner user-name)
              (some #(= % user-name) guests)))))
 
-;; ;; chatrooms [] -> sorted-map,get-chatroom-index no needed again
-;; (defn get-chatroom-index [chatroom-id]
-;;   ((into {} (map-indexed (fn [index ele] [(:chatroom-id ele) index]) @chatrooms)) chatroom-id))
-
 (defn invite [chatroom-id chatroom-owner chatroom-guest]
   (if (and chatroom-id chatroom-owner chatroom-guest)
     (swap! chatrooms update-in [chatroom-id :chatroom-guests] #(conj % chatroom-guest))
     (timbre/info "邀请好友信息不完全:要求chatroom-id,chatroom-owner,chatroom-guest")))
 
-(defn get-user-by-name [name]
-  (first (filter #(= name (:name %)) @users)))
 
-(def get-user get-user-by-name)
 
-(defn get-encrypted-password-from-database [name]
-  (:encrypted-password (get-user name)))
+;;;;;;;;;;  msgs about   ;;;;;;;;;;
+
+
 
 (defn to-msg-type [to]
   (cond
@@ -101,6 +105,20 @@
       (swap! msgs-location disj m)))
   msgs-location)
 
+(defn Message-from-map [-map]
+  (map->Message {:from (:from -map)
+                 :to (:to -map)
+                 :text (:text -map)
+                 :time (t/now)
+                 :should-reserved true}))
+
+
+
+;;;;;;;;;;  clean task  about ;;;;;;;;;;
+
+
+
+;;简单粗暴的future-loop-sleep轮询清理
 ;;定时清除msgs-world,msgs-chatroom中信息,默认1分钟,
 ;; (defn start-clean-task
 ;;   ([]
@@ -124,9 +142,11 @@
                                          (clean-msgs msgs-world)
                                          (clean-msgs msgs-chatroom)))))))))
 
-(def channels-map {:p2p p2p-channels
-                   :chatroom chatroom-channels
-                   :world world-channels})
+
+
+;;;;;;;;;; connect and channel abount  ;;;;;;;;;;
+
+
 
 (defn get-right-channel [to]
   (channels-map (to-msg-type to)))
@@ -139,19 +159,39 @@
   (timbre/info (str "channel: " channel "closed,status: " status "."))
   (swap! (get-right-channel to) disj channel))
 
-(defn msg-callback-dispatch-fn [msg]
-  (to-msg-type (:to msg)))
+
+
+;;;;;;;;;;  request about fns ;;;;;;;;;;
+
+
 
 ;;服务器中存加密后的密码,加密算法与客户端约定,使用buddy.hashers/encrypted,bcrypt+sha512,
 (defn validate-request [req]
   (= (get-encrypted-password-from-database (-> req :params :name)) (-> req :params :password)))
 
-(defn Message-from-map [-map]
-  (map->Message {:from (:from -map)
-                 :to (:to -map)
-                 :text (:text -map)
-                 :time (t/now)
-                 :should-reserved true}))
+
+
+(defn get-latest-message-text [from to]
+  (last (sort-by :time
+                 (filter #(and (= from (:from %))
+                               (= to   (:to %)))
+                         @msgs-p2p))))
+
+(defn get-p2p-records
+  "Return p2p-records user list,and latest message,model:{:user-list xxx,:latest-messages:[[Talk-TO-Person Message-Text]] ."
+  [user-id]
+  (let [user (get-user-by-id user-id)
+        from (:name user)
+        talked-persons-history (:talked-persons-history user) ;;每个对应Message. 中的to
+        latest-messages (vec (for [to talked-persons-history]
+                               [to (get-latest-message-text from to)]))]
+    {:user-list talked-persons-history :latest-messages latest-messages}))
+
+
+
+;;;;;;;;;;  handler about  ;;;;;;;;;;
+
+
 
 ;;req的body是json
 ;;客户端确保发过来的信息 :from :to :text三个字段,
@@ -201,24 +241,14 @@
                                                 ))
                            (server/send! channel (json-str {:error true :reason "用户名,密码验证不正确."}))))))
 
+
+
+;;;;;;;;;; routes abount  ;;;;;;;;;;
+
+
+
 (defroutes websocket-routes
            (GET "/ws" req (websocket-handler req)))
-
-(defn get-latest-message-text [from to]
-  (last (sort-by :time
-                 (filter #(and (= from (:from %))
-                               (= to   (:to %)))
-                         @msgs-p2p))))
-
-(defn get-p2p-records
-  "Return p2p-records user list,and latest message,model:{:user-list xxx,:latest-messages:[[Talk-TO-Person Message-Text]] ."
-  [user-id]
-  (let [user (get-user-by-id user-id)
-        from (:name user)
-        talked-persons-history (:talked-persons-history user) ;;每个对应Message. 中的to
-        latest-messages (vec (for [to talked-persons-history]
-                               [to (get-latest-message-text from to)]))]
-    {:user-list talked-persons-history :latest-messages latest-messages}))
 
 ;;api-routes给客户端json vector,
 (defroutes api-routes
