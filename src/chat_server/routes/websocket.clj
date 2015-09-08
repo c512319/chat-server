@@ -4,8 +4,21 @@
             [taoensso.timbre :as timbre]
             [buddy.hashers :as hashers]
             [clojure.data.json :refer [json-str read-json]]
-            [clj-time.core :as t])
+            [clj-time.core :as t]
+            [org.httpkit.timer :as timer]
+            [clojure.core.async :refer [chan alts! timeout go >!]])
   (:use chat-server.models))                            ;import models(record): User, Message.
+
+;; Alpha to change
+;; 控制定期清理任务开始的分钟数,*clean-minutes*为(0 1 2 3)时表示从现在0 1 2 3 minute的时候,
+;; 分别用org.httpkit.timer/schedule-task分配一次计划任务,
+;; Problems:
+;; 1.*clean-minutes*设置太大(start-clean-task)的时候,触发clojure.lang.RT.intCast(RT.java.1191)
+;;    IllegalArgumentException Value out of range for int: 2147520000
+;; 2.org.httpkit.timer.TimerService schedule太多会不会有问题
+;; 3.默认计划分配了5小时的清理任务,需要其他手段定期执行start-clean-task,脚本定期执行??
+;;   改用偏移式schedule??
+(def ^:dynamic *clean-minutes* (range (* 5 3600)))
 
 ;; (def users (atom []))
 ;; Many operations of users depend on id,so change to sorted-map for efficience
@@ -89,16 +102,27 @@
   msgs-location)
 
 ;;定时清除msgs-world,msgs-chatroom中信息,默认1分钟,
-(defn start-clean-task
-  ([]
-   (start-clean-task 1))
-  ([minutes]
-   (future
-     (loop []
-       (clean-msgs msgs-world)
-       (clean-msgs msgs-chatroom)
-       (Thread/sleep (* minutes 60 1000))
-       (recur)))))
+;; (defn start-clean-task
+;;   ([]
+;;    (start-clean-task 1))
+;;   ([minutes]
+;;    (future
+;;      (loop []
+;;        (clean-msgs msgs-world)
+;;        (clean-msgs msgs-chatroom)
+;;        (Thread/sleep (* minutes 60 1000))
+;;        (recur)))))
+
+;; reimplement start-clean-task,using timer/schedule-task and core.async/timeout channel.
+(defn start-clean-task []
+  (doseq [i *clean-minutes*]
+    (let [ms (* i 60 1000)]
+      (timer/schedule-task ms
+                           (let [c (chan)]
+                             (go (alts! [c (timeout ms)]))
+                             (go (>! c (do
+                                         (clean-msgs msgs-world)
+                                         (clean-msgs msgs-chatroom)))))))))
 
 (def channels-map {:p2p p2p-channels
                    :chatroom chatroom-channels

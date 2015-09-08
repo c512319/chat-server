@@ -14,6 +14,7 @@
                  [com.taoensso/timbre "3.4.0"]
                  [buddy/buddy-hashers "0.6.0"]
                  [ring/ring-json "0.4.0"]
+                 [org.clojure/core.async "0.1.346.0-17112a-alpha"]
 
 
 
